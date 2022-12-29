@@ -1,89 +1,141 @@
-import { fetchImages } from '../js/fetchImages';
 import Notiflix from 'notiflix';
 import SimpleLightbox from 'simplelightbox';
-import 'simplelightbox/dist/simple-lightbox.min.css';
-
-const input = document.querySelector('.search-form-input');
-const btnSearch = document.querySelector('.search-form-button');
-const gallery = document.querySelector('.gallery');
-const btnLoadMore = document.querySelector('.load-more');
-let gallerySimpleLightbox = new SimpleLightbox('.gallery a');
+import "simplelightbox/dist/simple-lightbox.min.css";
+import { fetchImages } from './fetchImages';
 
 
-btnLoadMore.style.display = 'none';
+const refs = {
+  searchForm: document.querySelector('.search-form'),
+  gallery: document.querySelector('.gallery'),
+  loadMoreBtn: document.querySelector('.load-more'),
+};
 
-let pageNumber = 1;
+let inputValue = '';
+let page = 1;
+const perPage = 40;
+let lightbox = new SimpleLightbox('.gallery a', {
+  captionsData: 'alt',
+  captionDelay: 250,
+  captionPosition: 'bottom',
+});
 
-btnSearch.addEventListener('click', e => {
+refs.loadMoreBtn.style.display = 'none';
+refs.searchForm.addEventListener('submit', onSearchFormSubmit);
+refs.loadMoreBtn.addEventListener('click', onLoadMoreBtnClick);
+
+async function onSearchFormSubmit(e) {
   e.preventDefault();
-  cleanGallery();
-  const trimmedValue = input.value.trim();
-  if (trimmedValue !== '') {
-    fetchImages(trimmedValue, pageNumber).then(foundData => {
-      if (foundData.hits.length === 0) {
-        Notiflix.Notify.failure(
-          'Sorry, there are no images matching your search query. Please try again.'
-        );
-      } else {
-        renderImageList(foundData.hits);
-        Notiflix.Notify.success(
-          `Hooray! We found ${foundData.totalHits} images.`
-        );
-        btnLoadMore.style.display = 'block';
-        gallerySimpleLightbox.refresh();
-      }
-    });
-  }
-});
+  refs.gallery.innerHTML = '';
+  inputValue = e.currentTarget.elements.searchQuery.value.trim();
 
-btnLoadMore.addEventListener('click', () => {
-  pageNumber++;
-  const trimmedValue = input.value.trim();
-  btnLoadMore.style.display = 'none';
-  fetchImages(trimmedValue, pageNumber).then(foundData => {
-    if (foundData.hits.length === 0) {
-      Notiflix.Notify.failure(
-        'Sorry, there are no images matching your search query. Please try again.'
-      );
-    } else {
-      renderImageList(foundData.hits);
-      Notiflix.Notify.success(
-        `Hooray! We found ${foundData.totalHits} images.`
-      );
-      btnLoadMore.style.display = 'block';
-    }
-  });
-});
+  const response = await loadPics(inputValue, page);
+  const totalHits = response.data.totalHits;
 
-function renderImageList(images) {
-  console.log(images, 'images');
-  const markup = images
-    .map(image => {
-      console.log('img', image);
-      return `<div class="photo-card">
-       <a href="${image.largeImageURL}"><img class="photo" src="${image.webformatURL}" alt="${image.tags}" title="${image.tags}" loading="lazy"/></a>
-        <div class="info">
-           <p class="info-item">
-    <b>Likes</b> <span class="info-item-api"> ${image.likes} </span>
-</p>
-            <p class="info-item">
-                <b>Views</b> <span class="info-item-api">${image.views}</span>  
-            </p>
-            <p class="info-item">
-                <b>Comments</b> <span class="info-item-api">${image.comments}</span>  
-            </p>
-            <p class="info-item">
-                <b>Downloads</b> <span class="info-item-api">${image.downloads}</span> 
-            </p>
-        </div>
-    </div>`;
-    })
-    .join('');
-  gallery.innerHTML += markup;
+  totalHitsFound(totalHits);
 }
 
-function cleanGallery() {
-  gallery.innerHTML = '';
-  pageNumber = 1;
-  btnLoadMore.style.display = 'none';
+async function loadPics(inputValue, page) {
+  refs.loadMoreBtn.style.display = 'none';
+  if (inputValue === '') {
+    return;
+  }
+
+  try {
+    const pic = await fetchImages(inputValue, page, perPage);
+    const stats = pic.data.hits;
+    const hitsLength = pic.data.hits.length;
+
+    if (hitsLength < perPage && hitsLength > 0) {
+      refs.loadMoreBtn.style.display = 'none';
+      endSearch();
+    } else {
+      refs.loadMoreBtn.style.display = 'block';
+    }
+
+    if (stats.length === 0) {
+      noImagesFound();
+    } else {
+      renderGalleryMarkup(stats);
+    }
+
+    return pic;
+  } catch (error) {
+    console.log(error);
+  } finally {
+    refs.searchForm.reset();
+    lightbox.refresh();
+  }
+}
+
+function noImagesFound() {
+  Notiflix.Notify.failure(
+    'Sorry, there are no images matching your search query. Please try again.'
+  );
+  refs.loadMoreBtn.style.display = 'none';
+}
+
+function endSearch() {
+  Notiflix.Notify.info(
+    "We're sorry, but you've reached the end of search results."
+  );
+}
+
+function renderGalleryMarkup(stats) {
+  stats.forEach(
+    ({
+      webformatURL,
+      largeImageURL,
+      tags,
+      likes,
+      views,
+      comments,
+      downloads,
+    }) => {
+      const markup = `<div class="photo-card">
+  <a href='${largeImageURL}'><img src="${webformatURL}" alt="${tags}" loading="lazy" width="350px" height="250px" /></a>
+  <div class="info">
+    <p class="info-item">
+      <b>Likes</b></br>${likes}
+    </p>
+    <p class="info-item">
+      <b>Views</b></br>${views}
+    </p>
+    <p class="info-item">
+      <b>Comments</b></br>${comments}
+    </p>
+    <p class="info-item">
+      <b>Downloads</b></br>${downloads}
+    </p>
+  </div>
+</div>`;
+      refs.gallery.insertAdjacentHTML('beforeend', markup);
+    }
+  );
+
+  if (lightbox !== null) {
+    lightbox.refresh();
+  }
+
+}
+
+async function onLoadMoreBtnClick() {
+  page += 1;
+  await loadPics(inputValue, page);
+  smoothScroll();
+}
+
+function totalHitsFound(totalHits) {
+  if (totalHits !== 0) {
+    Notiflix.Notify.success(`Hooray! We found ${totalHits} images.`);
+  }
+}
+
+function smoothScroll() {
+  const { height: cardHeight } =
+    refs.gallery.firstElementChild.getBoundingClientRect();
+
+  window.scrollBy({
+    top: cardHeight * 2,
+    behavior: 'smooth',
+  });
 }
